@@ -848,8 +848,9 @@ body.edit .tamu-saja{display:none!important}
 .peng-und{border:1px solid #d9ebdd;background:#f6fbf7;border-radius:12px;padding:10px 12px;margin:4px 0;display:flex;flex-direction:column;gap:6px;min-width:0}
 .peng-und[hidden]{display:none}
 .peng-und legend{font-weight:700;color:#0b6b37;padding:0 6px}
-.cek-baris{display:flex;align-items:center;gap:8px;font-weight:600;margin:6px 0}
-.cek-baris input{width:18px;height:18px}
+.form label.cek-baris{display:flex;align-items:center;gap:10px;font-weight:600;font-size:.95rem;margin:12px 0 4px;cursor:pointer}
+.form label.cek-baris input[type=checkbox]{width:20px;height:20px;flex:none;margin:0;padding:0;accent-color:#13804a}
+.galat.info{color:#0b6b37}
 .peng-aksi{flex-wrap:wrap}
 .peng-aksi .wa{border-color:#25a244;color:#16803a}
 </style>
@@ -5287,7 +5288,7 @@ const labelExt = n => { const e = (String(n || "").split(".").pop() || "").toUpp
 const ukuranTeks = b => !b ? "" : b >= 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
 const gambarLamp = l => /^image\//.test(l.tipe || "") || /\.(jpe?g|png|webp|gif|bmp)$/i.test(l.nama || "");
 function teksWA(x){
-  const k = kegPeng(x), situs = /^https?:/.test(location.protocol) && !/localhost|appassets|mgmp\.test/.test(location.host) ? location.origin : "https://mgmppahsma.web.app";
+  const k = kegPeng(x), situs = /^https?:/.test(location.protocol) && !/localhost|appassets|mgmp\.test/.test(location.host) ? (location.origin + location.pathname).replace(/\/?(index\.html)?$/, "") : "https://managementpandita.my.id/mgmp-pah";
   const baris = [`*${x.judul}*`];
   if(x.keterangan) baris.push(x.keterangan);
   if(k){ if(!k.tanggal_tentatif) baris.push("📅 " + new Date(k.tanggal_mulai).toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"}) + ", pukul " + new Date(k.tanggal_mulai).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}).replace(":",".") + " WITA");
@@ -5346,6 +5347,41 @@ async function bacaLampiran(pid, idx){
     if(e === "PDF") await tampilPdf(data, isi, d); else if(e === "DOCX" || e === "DOC") await tampilWord(data, e, isi); else await tampilExcel(data, isi);
   } catch(err){ console.error(err); $("#bacaInfo").textContent = ""; isi.innerHTML = `<p class="kosong">Dokumen tidak bisa ditampilkan di sini. Gunakan tombol Unduh.</p>`; }
 }
+async function teksDariBerkas(f){
+  let teks = "";
+  if(/\.pdf$/i.test(f.name) || f.type === "application/pdf"){
+    await siapPdfjs(); const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
+    for(let i = 1; i <= Math.min(3, pdf.numPages); i++){ const tc = await (await pdf.getPage(i)).getTextContent(); let y = null;
+      for(const it of tc.items){ if(y != null && Math.abs(it.transform[5] - y) > 2) teks += "\n"; teks += it.str; y = it.transform[5]; } teks += "\n"; }
+  } else {
+    const h = await berkasKeHtml(f), div = document.createElement("div"); div.innerHTML = h.html;
+    div.querySelectorAll("p,div,td,li,br,h1,h2,h3,tr").forEach(el => el.append("\n")); teks = div.textContent;
+  }
+  return teks.replace(/ /g, " ").replace(/[ \t]+/g, " ");
+}
+function bacaUndangan(teks){
+  const B = BULAN_ID.join("|"), baris = teks.split("\n").map(x => x.trim()).filter(Boolean);
+  const nilai = re => { for(const b of baris){ const m = b.match(re); if(m && m[1] && m[1].trim().length > 1) return m[1].trim().replace(/^[:\s]+/, ""); } return ""; };
+  const out = {};
+  const perihal = nilai(/^(?:perihal|hal)\s*:\s*(.+)$/i), acara = nilai(/^(?:acara|kegiatan|agenda)\s*:\s*(.+)$/i);
+  out.nomor = nilai(/^nomor\s*:\s*(.+)$/i);
+  if(perihal && !/^undangan\.?$/i.test(perihal)) out.judul = perihal; else if(acara) out.judul = (perihal ? "Undangan " : "") + acara; else if(perihal) out.judul = perihal;
+  out.undangan = /undangan|mengundang/i.test(teks);
+  const tglBaris = nilai(/^(?:hari\s*[\/,]?\s*tanggal|hari\s*\/\s*tgl|tanggal|hari)\s*:\s*(.+)$/i) || teks;
+  const rentang = tglBaris.match(new RegExp(`(\\d{1,2})\\s*(?:-|–|s\\.?\\s*d\\.?|sampai(?: dengan)?)\\s*(\\d{1,2})\\s+(${B})\\s+(\\d{4})`, "i"));
+  const satu = tglBaris.match(new RegExp(`(\\d{1,2})\\s+(${B})\\s+(\\d{4})`, "i"));
+  let tgl1 = "", tgl2 = "";
+  if(rentang){ const bl = dua(BULAN_ID.indexOf(rentang[3].toLowerCase()) + 1); tgl1 = `${rentang[4]}-${bl}-${dua(rentang[1])}`; tgl2 = `${rentang[4]}-${bl}-${dua(rentang[2])}`; }
+  else if(satu && tglBaris !== teks){ tgl1 = `${satu[3]}-${dua(BULAN_ID.indexOf(satu[2].toLowerCase()) + 1)}-${dua(satu[1])}`; }
+  const waktu = nilai(/^(?:waktu|pukul|jam)\s*:\s*(.+)$/i), jam = [...waktu.matchAll(/(\d{1,2})[.:](\d{2})/g)].map(m => `${dua(m[1])}:${m[2]}`);
+  if(tgl1){ out.mulai = `${tgl1}T${jam[0] || "08:00"}`; if(jam[1] || tgl2) out.selesai = `${tgl2 || tgl1}T${jam[1] || (jam[0] || "08:00")}`; }
+  out.lokasi = nilai(/^(?:tempat|lokasi)\s*:\s*(.+)$/i);
+  out.peserta = nilai(/^peserta\s*:\s*(.+)$/i);
+  out.narasumber = nilai(/^(?:narasumber|nara sumber|pemateri)\s*:\s*(.+)$/i);
+  const iDh = baris.findIndex(b => /^dengan hormat/i.test(b)), iHari = baris.findIndex((b,i) => i > iDh && /^(hari|tanggal|waktu|pukul|tempat|acara)\b/i.test(b));
+  if(iDh >= 0){ const isi = baris.slice(iDh, iHari > iDh ? iHari : iDh + 4).join(" ").replace(/\s+/g, " ").trim(); if(isi.length > 20) out.isi = isi.slice(0, 700); }
+  return out;
+}
 function bukaFormPengumuman(id, awal = {}){
   if(!isAdmin()){ bukaLogin(); return; }
   if(dlg.open) dlg.close();
@@ -5376,10 +5412,10 @@ function bukaFormPengumuman(id, awal = {}){
     <label class="cek-baris"><input type="checkbox" id="f_sematkan"${x.sematkan ? " checked" : ""}> Sematkan di urutan teratas</label>
     <label for="f_sampul">Gambar / poster (opsional)</label>
     <div class="unggah"><img class="pratinjau" id="pv_sampul" ${x.sampul_url ? `data-src="${esc(x.sampul_url)}"` : ""} alt="">
-      <div><input type="file" id="f_sampul" accept="image/*"><small class="bantu">JPG, PNG, atau WebP. Otomatis diperkecil.${x.sampul_url ? ' <button type="button" class="mini" id="hapusSampul">Hapus gambar</button>' : ""}</small></div></div>
+      <div><input type="file" id="f_sampul" accept="image/*"><small class="bantu">Khusus foto/gambar (JPG, PNG, WebP). Surat dan dokumen masukkan ke Lampiran di bawah.${x.sampul_url ? ' <button type="button" class="mini" id="hapusSampul">Hapus gambar</button>' : ""}</small></div></div>
     <label for="f_lamp">Lampiran (boleh lebih dari satu, semua format)</label>
     <input type="file" id="f_lamp" multiple>
-    <small class="bantu">Surat undangan PDF, Word, Excel, PowerPoint, foto, ZIP, dan lainnya. Maks. 10 MB per file; video sebaiknya berupa tautan.</small>
+    <small class="bantu">Surat undangan PDF, Word, Excel, PowerPoint, foto, ZIP, dan lainnya. Maks. 10 MB per file. Surat undangan PDF/Word otomatis dibaca untuk mengisi judul, tanggal, jam, dan tempat.</small>
     <ul class="peng-lamp edit" id="lampForm"></ul>
   </div><p class="galat" id="galat" role="alert"></p>
   <div class="aksi">${baru ? "" : '<button class="btn bahaya" id="fHapus">Hapus</button>'}<button class="btn garis" id="fBatal">Batal</button><button class="btn" id="fSimpan">${baru ? "Terbitkan" : "Simpan perubahan"}</button></div>`;
@@ -5398,16 +5434,34 @@ function bukaFormPengumuman(id, awal = {}){
         if(/^image\//.test(f.type) && !/gif|svg/.test(f.type) && f.size > 700 * 1024){ const d = await kompresFoto(f, 2000);
           st.baruLamp.push({ data: d, nama: f.name.replace(/\.[^.]+$/, "") + (d.startsWith("data:image/webp") ? ".webp" : ".jpg"), tipe: d.slice(5, d.indexOf(";")), ukuran: Math.round(d.length * 0.75) }); }
         else st.baruLamp.push({ data: await bacaFile(f), nama: f.name, tipe: f.type || "", ukuran: f.size });
+        if(/\.(pdf|docx|doc)$/i.test(f.name)) await isiDariSurat(f);
       } catch(err){ salah.push(`"${f.name}" tidak terbaca`); }
     }
-    $("#f_lamp").value = ""; tampilLamp(); $("#galat").textContent = salah.length ? "Dilewati: " + salah.join("; ") + "." : ""; };
+    $("#f_lamp").value = ""; tampilLamp(); if(salah.length) $("#galat").textContent = "Dilewati: " + salah.join("; ") + "."; else if(!st.pesanIsi) $("#galat").textContent = ""; st.pesanIsi = ""; };
+  async function isiDariSurat(f){
+    let u; try { u = bacaUndangan(await teksDariBerkas(f)); } catch(err){ console.error(err); return; }
+    const isi = [], set = (k, v, lbl) => { const el = $("#f_" + k); if(v && el && !el.value.trim()){ el.value = v; isi.push(lbl); } };
+    if(u.undangan && u.mulai && $("#f_jenis").value !== "Undangan" && !$("#f_judul").value.trim()){ $("#f_jenis").value = "Undangan"; $("#pengUnd").hidden = false; isi.push("jenis Undangan"); }
+    set("judul", u.judul, "judul"); set("keterangan", u.nomor ? "Surat nomor " + u.nomor : "", "keterangan"); set("isi", u.isi, "isi");
+    set("tanggal_mulai", u.mulai, "tanggal & jam mulai"); set("tanggal_selesai", u.selesai, "selesai"); set("lokasi", u.lokasi, "tempat");
+    set("peserta", u.peserta, "peserta"); set("narasumber", u.narasumber, "narasumber");
+    st.pesanIsi = isi.length ? `Dibaca dari "${f.name}": ${isi.join(", ")} terisi otomatis. Periksa sebelum menerbitkan.` : `"${f.name}" terlampir. Isi surat tidak dapat dibaca otomatis; lengkapi isian secara manual.`;
+    const g = $("#galat"); g.textContent = st.pesanIsi; g.classList.toggle("info", isi.length > 0);
+  }
   $("#f_sampul").onchange = async () => { const f = $("#f_sampul").files[0]; if(!f) return;
-    try { st.sampul = await kompresFoto(f, 1600); st.hapusSampul = false; $("#pv_sampul").src = st.sampul; $("#galat").textContent = ""; } catch(err){ $("#galat").textContent = "Gambar tidak terbaca."; } };
+    if(!/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|bmp|heic)$/i.test(f.name)){
+      $("#f_sampul").value = "";
+      if(f.size > MAKS_LAMPIRAN){ $("#galat").textContent = `"${f.name}" bukan gambar dan lebih dari 10 MB.`; return; }
+      st.baruLamp.push({ data: await bacaFile(f), nama: f.name, tipe: f.type || "", ukuran: f.size }); tampilLamp();
+      $("#galat").textContent = `"${f.name}" bukan gambar, jadi dipindahkan ke Lampiran.`;
+      if(/\.(pdf|docx|doc)$/i.test(f.name)) await isiDariSurat(f);
+      return; }
+    try { st.sampul = await kompresFoto(f, 1600); st.hapusSampul = false; $("#pv_sampul").src = st.sampul; $("#galat").textContent = ""; } catch(err){ $("#galat").textContent = "Gambar tidak terbaca. Pilih file JPG atau PNG."; } };
   if($("#hapusSampul")) $("#hapusSampul").onclick = () => { st.hapusSampul = true; st.sampul = null; $("#pv_sampul").removeAttribute("src"); $("#hapusSampul").remove(); };
   $("#fBatal").onclick = () => dlg.close();
   if($("#fHapus")) $("#fHapus").onclick = () => hapus("pengumuman", x);
   $("#fSimpan").onclick = async () => {
-    const btn = $("#fSimpan"), g = $("#galat"), val = kk => nilaiField({ k: kk }).trim();
+    const btn = $("#fSimpan"), g = $("#galat"), val = kk => nilaiField({ k: kk }).trim(); g.classList.remove("info");
     const jenis = $("#f_jenis").value, und = jenis === "Undangan", judul = val("judul"), kurang = [];
     if(!judul) kurang.push("Judul"); if(!$("#f_tanggal").value) kurang.push("Tanggal pengumuman");
     if(und && !$("#f_tanggal_mulai").value) kurang.push("Waktu mulai acara");
